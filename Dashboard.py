@@ -150,7 +150,7 @@ if df is not None:
        
         # 📈 Evolução do Saldo
     if 'Balance' in df_filtered.columns and not df_filtered['Balance'].isna().all():
-
+    
         # Criar uma cópia e remover NaNs
         df_graph = df_filtered.dropna(subset=['Day', 'Balance']).copy()
         
@@ -186,13 +186,16 @@ if df is not None:
             title=f'{month_title}'
         )
     
-        # Ajustar layout
+        # Ajustar layout para garantir que o Y comece em 0
         fig_balance.update_layout(
             title_x=0.5,
             title_font=dict(size=24),
             xaxis=dict(
                 tickformat="%d",
                 dtick="D1"
+            ),
+            yaxis=dict(
+                range=[0, df_complete['Balance'].max() + 1]  # Garante que 0 sempre apareça
             ),
             yaxis_title_font=dict(size=16)
         )
