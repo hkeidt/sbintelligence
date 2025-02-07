@@ -1,8 +1,3 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-from datetime import datetime
-
 # Configuração do Streamlit
 st.set_page_config(page_title='Dashboard de Apostas', layout='wide')
 st.title('🎲 SBIntelligence - Dashboard Profit')
