@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from datetime import datetime
 
 # Configuração do Streamlit
 st.set_page_config(page_title='Dashboard de Apostas', layout='wide')
@@ -62,30 +63,40 @@ if df is not None:
             """
             <style>
             section[data-testid="stSidebar"] {
-                min-width: 250px !important;  /* Reduz a largura mínima */
-                max-width: 250px !important;  /* Reduz a largura máxima */
+                min-width: 250px !important;
+                max-width: 250px !important;
             }
             </style>
             """,
             unsafe_allow_html=True
         )
     
-        valid_dates = df['Day'].dropna().dt.date.unique()
-        if len(valid_dates) > 0:
-            start_date, end_date = st.sidebar.date_input(
-                "Select the days:",
-                value=(min(valid_dates), max(valid_dates)),
-                min_value=min(valid_dates),
-                max_value=max(valid_dates)
-            )
-    
-            # Filtrar o dataframe com base nas datas selecionadas
-            df_filtered = df[(df['Day'].dt.date >= start_date) & (df['Day'].dt.date <= end_date)]
-        else:
-            df_filtered = df.copy()
+        # Criar lista de meses/anos disponíveis no formato "Month/Year"
+        available_months = sorted(df['Day'].dt.strftime('%B/%Y').unique())
+        
+        # Pegar o último mês da lista (mais recente)
+        latest_month = available_months[-1]
+        
+        # Criar selectbox com o mês mais recente pré-selecionado
+        selected_month = st.sidebar.selectbox(
+            "Select month:",
+            options=available_months,
+            index=len(available_months)-1  # Seleciona o último item da lista
+        )
+        
+        # Converter o mês selecionado para datetime
+        selected_date = pd.to_datetime(selected_month, format='%B/%Y')
+        
+        # Filtrar o dataframe para mostrar apenas dados do mês selecionado
+        df_filtered = df[
+            (df['Day'].dt.month == selected_date.month) & 
+            (df['Day'].dt.year == selected_date.year)
+        ]
     else:
         df_filtered = df.copy()
-
+        
+        
+        
     # Layout principal com quatro colunas
     col1, col2, col3, col4 = st.columns(4)
     
@@ -151,81 +162,240 @@ if df is not None:
         # 📈 Evolução do Saldo
     if 'Balance' in df_filtered.columns and not df_filtered['Balance'].isna().all():
     
-        # Criar uma cópia e remover NaNs
-        df_graph = df_filtered.dropna(subset=['Day', 'Balance']).copy()
+    # Criar layout de duas colunas para os gráficos
+        col_balance, col_market = st.columns([2, 1])
         
-        # Criar a coluna do mês
-        df_graph['Month'] = df_graph['Day'].dt.strftime('%B')
+        with col_balance:
+            # Criar uma cópia e remover NaNs
+            df_graph = df_filtered.dropna(subset=['Day', 'Balance']).copy()
+            
+            # Criar a coluna do mês
+            df_graph['Month'] = df_graph['Day'].dt.strftime('%B')
+            
+            # Obter o nome do mês para o título
+            unique_months = df_graph['Month'].unique()
+            month_title = unique_months[0] if len(unique_months) == 1 else "Multiple Months"
         
-        # Obter o nome do mês para o título
-        unique_months = df_graph['Month'].unique()
-        month_title = unique_months[0] if len(unique_months) == 1 else "Multiple Months"
-    
-        # Obter o último Balance registrado por dia
-        df_last_balance = df_graph.groupby(df_graph['Day'].dt.date)['Balance'].last().reset_index()
-        df_last_balance['Day'] = pd.to_datetime(df_last_balance['Day'])
-    
-        # Criar uma faixa de datas do primeiro ao último dia do mês
-        first_day = df_last_balance['Day'].min().replace(day=1)
-        last_day = df_last_balance['Day'].max().replace(day=28) + pd.DateOffset(days=4)
-        last_day = last_day - pd.DateOffset(days=last_day.day)  # Ajusta para o último dia do mês
-        full_date_range = pd.date_range(start=first_day, end=last_day, freq='D')
-    
-        # Criar DataFrame completo com todos os dias
-        df_complete = pd.DataFrame({'Day': full_date_range})
-        df_complete = df_complete.merge(df_last_balance, on='Day', how='left')
-    
-        # Em vez de preencher os valores ausentes, manter como NaN para quebrar a linha nos dias sem apostas
-        df_complete.loc[df_complete['Balance'].isna(), 'Balance'] = None
-    
-        # Criar o gráfico
-        fig_balance = px.line(
-            df_complete,
-            x='Day',
-            y='Balance',
-            title=f'{month_title}'
-        )
-    
-        # Ajustar layout para garantir que o Y comece em 0
-        fig_balance.update_layout(
-            title_x=0.5,
-            title_font=dict(size=24),
-            xaxis=dict(
-                tickformat="%d",
-                dtick="D1"
-            ),
-            yaxis=dict(
-                range=[0, df_complete['Balance'].max() + 1]  # Garante que 0 sempre apareça
-            ),
-            yaxis_title_font=dict(size=16)
-        )
-    
-        # Mostrar o gráfico no Streamlit
-        st.plotly_chart(fig_balance, use_container_width=True)
-
-    
-    # 📊 Gráficos de Resultados e Categorias
-    col_left, col_right = st.columns(2)
-    
-    with col_left:
-        if 'Result' in df_filtered.columns:
-            results_count = df_filtered['Result'].value_counts()
-            fig_results = px.pie(
-                values=results_count.values,
-                names=results_count.index,
-                title='Distribuição de Resultados'
+            # Obter o último Balance registrado por dia
+            df_last_balance = df_graph.groupby(df_graph['Day'].dt.date)['Balance'].last().reset_index()
+            df_last_balance['Day'] = pd.to_datetime(df_last_balance['Day'])
+        
+            # Criar uma faixa de datas do primeiro ao último dia do mês
+            first_day = df_last_balance['Day'].min().replace(day=1)
+            last_day = df_last_balance['Day'].max().replace(day=28) + pd.DateOffset(days=4)
+            last_day = last_day - pd.DateOffset(days=last_day.day)  # Ajusta para o último dia do mês
+            full_date_range = pd.date_range(start=first_day, end=last_day, freq='D')
+        
+            # Criar DataFrame completo com todos os dias
+            df_complete = pd.DataFrame({'Day': full_date_range})
+            df_complete = df_complete.merge(df_last_balance, on='Day', how='left')
+        
+            # Em vez de preencher os valores ausentes, manter como NaN para quebrar a linha nos dias sem apostas
+            df_complete.loc[df_complete['Balance'].isna(), 'Balance'] = None
+        
+            # Criar o gráfico de linha
+            fig_balance = px.line(
+                df_complete,
+                x='Day',
+                y='Balance',
+                title=f'{month_title}'
             )
-            st.plotly_chart(fig_results)
-    
-    with col_right:
-        if 'Category' in df_filtered.columns:
-            category_count = df_filtered['Category'].value_counts()
-            fig_category = px.bar(
-                x=category_count.index,
-                y=category_count.values,
-                title='Apostas por Categoria'
+        
+            # Ajustar layout para garantir que o Y comece em 0 e definir altura total
+            fig_balance.update_layout(
+                title_x=0.5,
+                title_font=dict(size=24),
+                xaxis=dict(
+                    tickformat="%d",
+                    dtick="D1"
+                ),
+                yaxis=dict(
+                    range=[0, df_complete['Balance'].max() + 1]
+                ),
+                yaxis_title_font=dict(size=16),
+                height=600  # Aumentada para corresponder à altura combinada do gráfico de profit (400) + espaço da tabela
             )
-            st.plotly_chart(fig_category)
+        
+            # Mostrar o gráfico no Streamlit
+            st.plotly_chart(fig_balance, use_container_width=True)
+            
+            
+        
+        with col_market:
+            # Função para calcular profit por mercado
+            def calculate_market_profit(df, market_type):
+                market_df = df[df['Market'].str.contains(market_type, case=False, na=False)]
+                
+                if len(market_df) == 0:
+                    return 0
+                    
+                market_profit = 0
+                for _, bet in market_df.iterrows():
+                    if bet['Results'] == 'Green':
+                        market_profit += bet['Stake'] * (bet['Odds'] - 1)
+                    elif bet['Results'] == 'Green/void':
+                        market_profit += bet['Stake'] * (bet['Odds'] - 1) * 0.5
+                    elif bet['Results'] == 'Red':
+                        market_profit -= bet['Stake']
+                    elif bet['Results'] == 'Red/void':
+                        market_profit -= bet['Stake'] * 0.5
+                
+                return market_profit
+            
+            # Calcular profits por mercado
+            profits = {
+                '1X2': calculate_market_profit(df_filtered, '1X2'),
+                'AH': calculate_market_profit(df_filtered, 'AH'),
+                'Under': calculate_market_profit(df_filtered, 'Under'),
+                'Over': calculate_market_profit(df_filtered, 'Over')
+            }
+            
+            # Criar DataFrame para os gráficos
+            df_profits = pd.DataFrame({
+                'Market': profits.keys(),
+                'Profit': profits.values()
+            })
+            
+            # Ordenar por valor absoluto do profit
+            df_profits = df_profits.sort_values('Profit', key=abs, ascending=True)
+            
+            # Criar seletor para escolher o tipo de visualização
+            chart_type = st.radio(" ", 
+                                 ["Bar Chart", "Pie Chart"],
+                                 horizontal=True)
+            
+            if chart_type == "Bar Chart":
+                # Criar gráfico de barras horizontais
+                fig = px.bar(
+                    df_profits,
+                    x='Profit',
+                    y='Market',
+                    orientation='h',
+                    title='Profit by Market'
+                )
+                
+                # Definir cores baseadas no sinal do profit
+                fig.update_traces(
+                    marker_color=['#ff6b6b' if x < 0 else '#51cf66' for x in df_profits['Profit']]
+                )
+                
+                # Ajustar layout
+                fig.update_layout(
+                    title=dict(
+                        text='Profit by Market',
+                        x=0.5,
+                        y=0.95,
+                        xanchor='center',
+                        yanchor='top'
+                    ),
+                    title_font=dict(size=24),
+                    showlegend=False,
+                    xaxis_title="Profit",
+                    yaxis_title="",
+                    height=250,
+                    margin=dict(b=0, t=40)
+                )
+                
+            else:  # Gráfico de Pizza
+                # Usar valor absoluto para tamanho dos segmentos
+                df_profits['AbsProfit'] = abs(df_profits['Profit'])
+                
+                # Definir uma paleta de cores diferentes para cada mercado
+                color_palette = ['#0077B6', '#00B4D8', '#48CAE4', '#90E0EF']
+                
+                # Criar gráfico de pizza
+                fig = px.pie(
+                    df_profits,
+                    values='AbsProfit',
+                    names='Market',
+                    title='Profit by Market',
+                    color='Market',  # Usar Market como base para as cores
+                    color_discrete_sequence=color_palette  # Usar nossa paleta personalizada
+                )
+                
+                # Ajustar layout
+                fig.update_layout(
+                    title=dict(
+                        text='Profit by Market',
+                        x=0.5,
+                        y=0.95,
+                        xanchor='center',
+                        yanchor='top'
+                    ),
+                    title_font=dict(size=24),
+                    showlegend=False,
+                    legend=dict(
+                        orientation="v",
+                        yanchor="middle",
+                        y=0.5,
+                        xanchor="right",
+                        x=1.2
+                    ),
+                    height=250,
+                    margin=dict(b=0, t=40)
+                )
+                
+                # Ajustar o formato dos valores no hover e text
+                fig.update_traces(
+                    texttemplate="<b>%{label}</b><br>%{customdata[0]:.2f}",
+                    customdata=df_profits[['Profit']],
+                    hovertemplate="<b>%{label}</b><br>%{customdata[0]:.2f}<br>%{percent}<extra></extra>"
+                )
+            
+            # Mostrar o gráfico selecionado
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            
+            # Inserir CSS global para controlar espaçamentos
+            st.markdown("""
+                <style>
+                    /* Remove espaço extra após o gráfico */
+                    [data-testid="stMetric"] {
+                        margin-bottom: 1rem;
+                    }
+                    
+                    /* Controla espaço do título */
+                    div.stMarkdown h4 {
+                        margin-top: -3rem !important;
+                        padding-top: 0 !important;
+                        margin-bottom: 0.5rem !important;
+                    }
+                    
+                    /* Controla espaço da tabela */
+                    div[data-testid="stDataFrame"] {
+                        margin-top: -2rem !important;
+                        padding-top: 0 !important;
+                    }
+                    
+                    /* Remove padding extra dos containers */
+                    .element-container {
+                        padding-top: 0 !important;
+                        margin-top: 0 !important;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+            
+            # Inserir um espaço invisível para ajudar no posicionamento
+            st.markdown('<div style="margin-top: -3rem;"></div>', unsafe_allow_html=True)
+            
+            st.markdown("""
+                <h4 style='text-align: center; color: white;'>Detailed Profit by Market</h4>
+            """, unsafe_allow_html=True)
+                
+            # Formatar os valores da tabela
+            df_table = df_profits.copy()
+            df_table['Profit'] = df_table['Profit'].apply(lambda x: f"{x:.2f}")
+            
+            # Mostrar tabela sem o índice e a coluna AbsProfit
+            if 'AbsProfit' in df_table.columns:
+                df_table = df_table.drop('AbsProfit', axis=1)
+            
+            # Mostrar a tabela
+            st.dataframe(df_table.set_index('Market'), use_container_width=True)
+                        
+            
+    
+    
+    
     
     # 📋 Tabela de Detalhamento de Apostas
     st.subheader("📋 Betting Details")
