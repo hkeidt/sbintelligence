@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+import plotly.graph_objects as go
 
 # Configuração do Streamlit
 st.set_page_config(page_title='Dashboard de Apostas', layout='wide')
@@ -165,58 +166,122 @@ if df is not None:
     # Criar layout de duas colunas para os gráficos
         col_balance, col_market = st.columns([2, 1])
         
+        # Replace the existing balance chart section with this code
         with col_balance:
-            # Criar uma cópia e remover NaNs
+            # Create a copy and remove NaNs
             df_graph = df_filtered.dropna(subset=['Day', 'Balance']).copy()
             
-            # Criar a coluna do mês
+            # Create month column
             df_graph['Month'] = df_graph['Day'].dt.strftime('%B')
             
-            # Obter o nome do mês para o título
+            # Get month name for title
             unique_months = df_graph['Month'].unique()
             month_title = unique_months[0] if len(unique_months) == 1 else "Multiple Months"
         
-            # Obter o último Balance registrado por dia
-            df_last_balance = df_graph.groupby(df_graph['Day'].dt.date)['Balance'].last().reset_index()
+            # Get the last Balance recorded per day
+            df_last_balance = df_graph.groupby(df_graph['Day'].dt.date).agg({
+                'Balance': 'last',
+                'Stake': 'sum',  # Soma das stakes do dia
+                'Results': lambda x: list(x)  # Lista de resultados do dia
+            }).reset_index()
+            
             df_last_balance['Day'] = pd.to_datetime(df_last_balance['Day'])
-        
-            # Criar uma faixa de datas do primeiro ao último dia do mês
+            
+            # Calculate daily profit
+            df_last_balance['Daily_Profit'] = df_last_balance.apply(lambda row: 
+                row['Balance'] - df_last_balance.loc[
+                    df_last_balance.index < row.name, 'Balance'
+                ].iloc[-1] if row.name > 0 else row['Balance'],
+                axis=1
+            )
+            
+            # Create complete date range
             first_day = df_last_balance['Day'].min().replace(day=1)
             last_day = df_last_balance['Day'].max().replace(day=28) + pd.DateOffset(days=4)
-            last_day = last_day - pd.DateOffset(days=last_day.day)  # Ajusta para o último dia do mês
+            last_day = last_day - pd.DateOffset(days=last_day.day)
             full_date_range = pd.date_range(start=first_day, end=last_day, freq='D')
-        
-            # Criar DataFrame completo com todos os dias
+            
+            # Create complete DataFrame
             df_complete = pd.DataFrame({'Day': full_date_range})
             df_complete = df_complete.merge(df_last_balance, on='Day', how='left')
-        
-            # Em vez de preencher os valores ausentes, manter como NaN para quebrar a linha nos dias sem apostas
-            df_complete.loc[df_complete['Balance'].isna(), 'Balance'] = None
-        
-            # Criar o gráfico de linha
-            fig_balance = px.line(
-                df_complete,
-                x='Day',
-                y='Balance',
-                title=f'{month_title}'
+            
+            # Create the figure
+            fig_balance = go.Figure()
+            
+            # Add daily profit/loss bars
+            fig_balance.add_trace(
+                go.Bar(
+                    x=df_complete['Day'],
+                    y=df_complete['Daily_Profit'],
+                    name='Daily P/L',
+                    marker_color=df_complete['Daily_Profit'].apply(
+                        lambda x: '#51cf66' if pd.notnull(x) and x > 0 else 
+                                 '#ff6b6b' if pd.notnull(x) and x < 0 else 
+                                 'rgba(0,0,0,0)'
+                    ),
+                    opacity=0.7,
+                    hovertemplate='<b>Daily P/L</b>: %{y:.2f}<extra></extra>'
+                )
             )
-        
-            # Ajustar layout para garantir que o Y comece em 0 e definir altura total
+            
+            # Add spline curve for cumulative balance
+            fig_balance.add_trace(
+                go.Scatter(
+                    x=df_complete['Day'],
+                    y=df_complete['Balance'],
+                    name='Balance',
+                    line=dict(shape='spline', smoothing=0.3, width=3, color='#1f77b4'),
+                    mode='lines',
+                    hovertemplate='<b>Balance</b>: %{y:.2f}<extra></extra>'
+                )
+            )
+            
+            # Update layout
             fig_balance.update_layout(
-                title_x=0.5,
-                title_font=dict(size=24),
+                title=dict(
+                    text=f'{month_title}',
+                    x=0.5,
+                    font=dict(size=24)
+                ),
                 xaxis=dict(
                     tickformat="%d",
-                    dtick="D1"
+                    dtick="D1",
+                    title='Day',
+                    showgrid=True,
+                    gridcolor='rgba(255,255,255,0.1)',
+                    gridwidth=1
                 ),
                 yaxis=dict(
-                    range=[0, df_complete['Balance'].max() + 1]
+                    title='Balance / Daily P&L',
+                    showgrid=True,
+                    gridcolor='rgba(255,255,255,0.1)',
+                    gridwidth=1,
+                    range=[
+                        min(
+                            0, 
+                            df_complete['Daily_Profit'].min() * 1.1 if not pd.isna(df_complete['Daily_Profit'].min()) else 0
+                        ),
+                        max(
+                            df_complete['Balance'].max() * 1.1 if not pd.isna(df_complete['Balance'].max()) else 0,
+                            df_complete['Daily_Profit'].max() * 1.1 if not pd.isna(df_complete['Daily_Profit'].max()) else 0
+                        )
+                    ]
                 ),
-                yaxis_title_font=dict(size=16),
-                height=600  # Aumentada para corresponder à altura combinada do gráfico de profit (400) + espaço da tabela
+                height=600,
+                showlegend=True,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                ),
+                hovermode='x unified',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)'
             )
-        
-            # Mostrar o gráfico no Streamlit
+            
+            # Show the chart
             st.plotly_chart(fig_balance, use_container_width=True)
             
             
@@ -377,88 +442,168 @@ if df is not None:
             # Inserir um espaço invisível para ajudar no posicionamento
             st.markdown('<div style="margin-top: -3rem;"></div>', unsafe_allow_html=True)
             
+            # Adicionar CSS para centralizar colunas
+            st.markdown("""
+                <style>
+                div[data-testid="stDataFrame"] td {
+                    text-align: center !important;
+                }
+                div[data-testid="stDataFrame"] th {
+                    text-align: center !important;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+            
+            
             st.markdown("""
                 <h4 style='text-align: center; color: white;'>Detailed Profit by Market</h4>
             """, unsafe_allow_html=True)
-                
+            
             # Formatar os valores da tabela
             df_table = df_profits.copy()
-            df_table['Profit'] = df_table['Profit'].apply(lambda x: f"{x:.2f}")
             
-            # Mostrar tabela sem o índice e a coluna AbsProfit
+            def calculate_roi(df_table, df_profits, df):
+                markets = ['1X2', 'Under', 'Over']
+                
+                for market in markets:
+                    profits = df_profits[df_profits['Market'] == market]['Profit'].sum()
+                    stakes = pd.to_numeric(df[df['Market'] == market]['Stake'], errors='coerce').sum()
+                    df_table.loc[df_table['Market'] == market, 'ROI'] = 100 * (profits / stakes)
+                
+                ah_profits = df_profits[df_profits['Market'] == 'AH']['Profit'].sum()
+                ah_stakes = pd.to_numeric(df[df['Market'] == 'AH']['Stake'], errors='coerce').sum()
+                df_table.loc[df_table['Market'] == 'AH', 'ROI'] = 100 * (ah_profits / ah_stakes)
+                
+                return df_table
+            
+            # Calcular ROI
+            df_table = calculate_roi(df_table, df_profits, df)
+            
+            # Formatar os valores
+            df_table['Profit'] = df_table['Profit'].apply(lambda x: f"{float(x):,.2f}")
+            df_table['ROI'] = df_table['ROI'].apply(lambda x: f"{x:.2f}%")
+            
+            # Remover a coluna AbsProfit se existir
             if 'AbsProfit' in df_table.columns:
                 df_table = df_table.drop('AbsProfit', axis=1)
             
-            # Mostrar a tabela
-            st.dataframe(df_table.set_index('Market'), use_container_width=True)
-                        
+            # Criar uma função de estilo para centralizar todas as colunas
+            def style_df(df):
+                return df.style.set_properties(**{
+                    'text-align': 'center',
+                    'font-size': '1rem',
+                    'padding': '0.5rem'
+                }).set_table_styles([
+                    {'selector': 'th', 'props': [('text-align', 'center')]},
+                    {'selector': 'td', 'props': [('text-align', 'center')]}
+                ])
             
+            # Aplicar o estilo e mostrar a tabela
+            styled_df = style_df(df_table.set_index('Market'))
+            
+            st.dataframe(
+                styled_df,
+                use_container_width=True,
+                hide_index=False
+            )
+            
+            
+            
+               
     
     
-    
-    
+    # Substitua a seção do Betting Details por este código
+
     # 📋 Tabela de Detalhamento de Apostas
-    st.subheader("📋 Betting Details")
+    st.markdown("""
+        <style>
+        /* Remove espaço extra após o gráfico */
+        [data-testid="stMetric"] {
+            margin-bottom: 1rem;
+        }
+        
+        /* Ajusta o espaçamento do título da seção */
+        .section-title {
+            margin-top: 2rem !important;
+            margin-bottom: 1rem !important;
+            padding-top: 1rem !important;
+            padding-bottom: 0.5rem !important;
+        }
+        
+        /* Controla espaço da tabela */
+        div[data-testid="stDataFrame"] {
+            padding-top: 0.5rem !important;
+        }
+        
+        /* Centraliza o conteúdo das células */
+        div[data-testid="stDataFrame"] td {
+            text-align: center !important;
+        }
+        div[data-testid="stDataFrame"] th {
+            text-align: center !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<h2 class="section-title">📋 Betting Details</h2>', unsafe_allow_html=True)
     
     # Selecionar colunas da B à M (índices 1 a 12)
     df_detailed = df.iloc[:, 1:13]
     
     df_detailed['Day'] = pd.to_datetime(df_detailed['Day']).dt.strftime('%d/%m')
     
-    # Converter as colunas "Balance", "Stake" e "Odds" para float (caso ainda não sejam)
+    # Converter as colunas "Balance", "Stake" e "Odds" para float
     df_detailed['Balance'] = df_detailed['Balance'].astype(float)
     df_detailed['Stake'] = df_detailed['Stake'].astype(float)
     df_detailed['Odds'] = df_detailed['Odds'].astype(float)
     
-    # Arredondar as colunas para 2 casas decimais
+    # Arredondar as colunas
     df_detailed['Balance'] = df_detailed['Balance'].round(2)
     df_detailed['Stake'] = df_detailed['Stake'].round(2)
     df_detailed['Odds'] = df_detailed['Odds'].round(3)
     
-    # Função para formatar valores com 2 casas decimais
+    # Funções para formatação
     def format_two_decimals(value):
         return f"{value:.2f}"
     def format_three_decimals(value):
         return f"{value:.3f}"
     
-    # Aplicar a formatação às colunas "Balance", "Stake" e "Odds"
+    # Aplicar formatação
     df_detailed['Balance'] = df_detailed['Balance'].apply(format_two_decimals)
     df_detailed['Stake'] = df_detailed['Stake'].apply(format_two_decimals)
     df_detailed['Odds'] = df_detailed['Odds'].apply(format_three_decimals)
-
     
-    # Ordenar o DataFrame pelo índice de trás para frente
+    # Ordenar o DataFrame
     df_detailed = df_detailed.iloc[::-1]
     
     def highlight_result(row):
-        # Dicionário de cores para cada resultado (aplicado ao texto)
         color_map = {
-            'Red': 'color: #FF4C4C; font-weight: bold;',         # Vermelho forte
-            'Red/void': 'color: #FF9999; font-weight: bold;',   # Vermelho mais claro
-            'Void': 'color: #FFD700; font-weight: bold;',       # Amarelo
-            'Green/void': 'color: #90EE90; font-weight: bold;', # Verde claro
-            'Green': 'color: #008000; font-weight: bold;'       # Verde forte
+            'Red': 'color: #FF4C4C; font-weight: bold;',
+            'Red/void': 'color: #FF9999; font-weight: bold;',
+            'Void': 'color: #FFD700; font-weight: bold;',
+            'Green/void': 'color: #90EE90; font-weight: bold;',
+            'Green': 'color: #008000; font-weight: bold;'
         }
     
-        # Verifica se há uma coluna de resultado
         result_column = [col for col in row.index if col.lower() in ['results', 'resultado']]
-    
-        # Criar uma lista vazia para armazenar os estilos
         styles = [''] * len(row)
     
         if result_column:
-            col_index = row.index.get_loc(result_column[0])  # Obtém o índice da coluna "Results"
+            col_index = row.index.get_loc(result_column[0])
             result_value = row[result_column[0]]
     
             if result_value in color_map:
-                styles[col_index] = color_map[result_value]  # Aplica o estilo apenas à célula correspondente
+                styles[col_index] = color_map[result_value]
     
-        return styles  # Retorna os estilos para cada célula da linha
+        return styles
     
+    # Mostrar a tabela com o novo espaçamento
     st.dataframe(
         df_detailed.style.apply(highlight_result, axis=1),
         use_container_width=True
     )
+    
+    
     
     # 📥 Download dos dados filtrados
     csv = df_filtered.to_csv(index=False).encode('utf-8')
