@@ -20,9 +20,14 @@ def convert_to_float(value):
         return None
 
 # Função para carregar dados do Google Sheets
-def load_google_sheets(sheet_url):
+def load_google_sheets(sheet_url, sheet_name=None):
     sheet_id = sheet_url.split("/d/")[1].split("/")[0]
-    csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
+    
+    # Se um nome de aba específico for fornecido, usamos ele para construir a URL
+    if sheet_name:
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
+    else:
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
     
     try:
         df = pd.read_csv(csv_url)
@@ -50,53 +55,55 @@ def load_google_sheets(sheet_url):
 # URL da planilha do Google Sheets
 google_sheets_url = "https://docs.google.com/spreadsheets/d/1fe_WjUo_8F68a0nOUZQjFCPbP0k7C2EkgkM-tjCFwD0/edit"
 
-# Carregar os dados
-df = load_google_sheets(google_sheets_url)
+# Definir mapeamento de meses para abas
+sheet_mapping = {
+    "February/2025": "Feb2025",  # Substitua pelos nomes reais das suas abas
+    "March/2025": "Mar2025"      # Substitua pelos nomes reais das suas abas
+}
+
+# Lista dos meses disponíveis para o seletor
+available_months = list(sheet_mapping.keys())
+available_months.sort()  # Ordena os meses
+
+# Sidebar com filtros
+st.sidebar.header("📊 Filters")
+
+# Criar selectbox com o mês mais recente pré-selecionado
+selected_month = st.sidebar.selectbox(
+    "Select month:",
+    options=available_months,
+    index=len(available_months)-1  # Seleciona o último item da lista
+)
+
+# Obter o nome da aba correspondente ao mês selecionado
+sheet_name = sheet_mapping.get(selected_month)
+
+
+
+# Carregar os dados da aba selecionada
+df = load_google_sheets(google_sheets_url, sheet_name)
 
 if df is not None:
-    # Sidebar com filtros
-    st.sidebar.header("📊 Filters")
+    st.markdown(
+        """
+        <style>
+        section[data-testid="stSidebar"] {
+            min-width: 250px !important;
+            max-width: 250px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Converter o mês selecionado para datetime para filtrar os dados
+    selected_date = pd.to_datetime(selected_month, format='%B/%Y')
     
-    # Filtro de data
-    if 'Day' in df.columns and pd.api.types.is_datetime64_any_dtype(df['Day']):
-        
-        st.markdown(
-            """
-            <style>
-            section[data-testid="stSidebar"] {
-                min-width: 250px !important;
-                max-width: 250px !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-    
-        # Criar lista de meses/anos disponíveis no formato "Month/Year"
-        available_months = sorted(df['Day'].dt.strftime('%B/%Y').unique())
-        
-        # Pegar o último mês da lista (mais recente)
-        latest_month = available_months[-1]
-        
-        # Criar selectbox com o mês mais recente pré-selecionado
-        selected_month = st.sidebar.selectbox(
-            "Select month:",
-            options=available_months,
-            index=len(available_months)-1  # Seleciona o último item da lista
-        )
-        
-        # Converter o mês selecionado para datetime
-        selected_date = pd.to_datetime(selected_month, format='%B/%Y')
-        
-        # Filtrar o dataframe para mostrar apenas dados do mês selecionado
-        df_filtered = df[
-            (df['Day'].dt.month == selected_date.month) & 
-            (df['Day'].dt.year == selected_date.year)
-        ]
-    else:
-        df_filtered = df.copy()
-        
-        
+    # Filtrar o dataframe para mostrar apenas dados do mês selecionado
+    df_filtered = df[
+        (df['Day'].dt.month == selected_date.month) & 
+        (df['Day'].dt.year == selected_date.year)
+    ]
         
     # Layout principal com quatro colunas
     col1, col2, col3, col4 = st.columns(4)
@@ -105,9 +112,9 @@ if df is not None:
     with col1:
        if 'Balance' in df_filtered.columns and not df_filtered['Balance'].isna().all():
            last_balance = df_filtered['Balance'].dropna().iloc[-1]  # Último valor do Balance
-           st.metric(label="💰 Profit", value=f"R$ {last_balance:.2f}")
+           st.metric(label="💰 Monthly Profit", value=f"R$ {last_balance:.2f}")
        else:
-           st.metric(label="💰 Profit", value="N/A")
+           st.metric(label="💰 Monthly Profit", value="N/A")
    
    # 📊 ROI
     with col2:
@@ -119,13 +126,13 @@ if df is not None:
            if total_stakes > 0:
                roi = ((last_balance) / total_stakes) * 100
                st.metric(
-                   label="📊 ROI", 
+                   label="📊 Monthly ROI", 
                    value=f"{roi:.1f}%"
                )
            else:
-               st.metric(label="📊 ROI", value="N/A")
+               st.metric(label="📊 Monthly ROI", value="N/A")
        else:
-           st.metric(label="📊 ROI", value="N/A")
+           st.metric(label="📊 Monthly ROI", value="N/A")
    
    # 📈 Taxa de Acerto
     with col3:
@@ -144,29 +151,29 @@ if df is not None:
                win_rate = 0
 
            st.metric(
-               label="📈 Win Rate",
+               label="📈 Monthly Win Rate",
                value=f"{win_rate:.1f}%",
                
            )
        else:
-           st.metric(label="📈 Taxa de Acerto", value="N/A")
+           st.metric(label="📈 Monthly Win Rate", value="N/A")
    
    # 🎯 Odds Média
     with col4:
        if 'Odds' in df_filtered.columns and not df_filtered['Odds'].isna().all():
            avg_odds = df_filtered['Odds'].dropna().mean()
-           st.metric(label="🎯 Avg Odds", value=f"{avg_odds:.2f}")
+           st.metric(label="🎯 Monthly Avg Odds", value=f"{avg_odds:.2f}")
        else:
-           st.metric(label="🎯 Avg Odds", value="N/A")
+           st.metric(label="🎯 Monthly Avg Odds", value="N/A")
     
-       
-        # 📈 Evolução do Saldo
+    # O resto do código permanece inalterado
+    # 📈 Evolução do Saldo
     if 'Balance' in df_filtered.columns and not df_filtered['Balance'].isna().all():
     
     # Criar layout de duas colunas para os gráficos
         col_balance, col_market = st.columns([2, 1])
         
-        # Replace the existing balance chart section with this code
+        # Na parte do gráfico, modifique esta seção:
         with col_balance:
             # Create a copy and remove NaNs
             df_graph = df_filtered.dropna(subset=['Day', 'Balance']).copy()
@@ -195,20 +202,34 @@ if df is not None:
                 axis=1
             )
             
-            # Create complete date range
+            # Pegue o último dia com aposta para limitar a spline
+            last_day_with_bet = df_last_balance['Day'].max()
+            
+            # Create complete date range para todo o mês
             first_day = df_last_balance['Day'].min().replace(day=1)
             last_day = df_last_balance['Day'].max().replace(day=28) + pd.DateOffset(days=4)
             last_day = last_day - pd.DateOffset(days=last_day.day)
             full_date_range = pd.date_range(start=first_day, end=last_day, freq='D')
             
-            # Create complete DataFrame
+            # Create complete DataFrame com todos os dias do mês
             df_complete = pd.DataFrame({'Day': full_date_range})
+            
+            # Fazer o merge mantendo todos os dias e preenchendo valores ausentes
             df_complete = df_complete.merge(df_last_balance, on='Day', how='left')
+            
+            # Forward fill para a coluna Balance (propagar o último valor conhecido)
+            df_complete['Balance'] = df_complete['Balance'].fillna(method='ffill')
+            
+            # Para Daily_Profit, dias sem apostas ficam como zero
+            df_complete['Daily_Profit'] = df_complete['Daily_Profit'].fillna(0)
+            
+            # Criar dataframe separado para a linha de saldo (apenas até o último dia com aposta)
+            df_balance_line = df_complete[df_complete['Day'] <= last_day_with_bet].copy()
             
             # Create the figure
             fig_balance = go.Figure()
             
-            # Add daily profit/loss bars
+            # Add daily profit/loss bars para todos os dias
             fig_balance.add_trace(
                 go.Bar(
                     x=df_complete['Day'],
@@ -224,11 +245,11 @@ if df is not None:
                 )
             )
             
-            # Add spline curve for cumulative balance
+            # Add spline curve for cumulative balance (apenas até o último dia com aposta)
             fig_balance.add_trace(
                 go.Scatter(
-                    x=df_complete['Day'],
-                    y=df_complete['Balance'],
+                    x=df_balance_line['Day'],
+                    y=df_balance_line['Balance'],
                     name='Balance',
                     line=dict(shape='spline', smoothing=0.3, width=3, color='#1f77b4'),
                     mode='lines',
@@ -285,7 +306,9 @@ if df is not None:
             st.plotly_chart(fig_balance, use_container_width=True)
             
             
-        
+            
+            
+        # O restante do código permanece o mesmo...
         with col_market:
             # Função para calcular profit por mercado
             def calculate_market_profit(df, market_type):
