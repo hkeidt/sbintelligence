@@ -4,6 +4,7 @@ import plotly.express as px
 from datetime import datetime
 import plotly.graph_objects as go
 
+
 # Configuração do Streamlit
 st.set_page_config(page_title='Dashboard de Apostas', layout='wide')
 st.title('🎲 SBIntelligence - Dashboard Profit')
@@ -58,7 +59,8 @@ google_sheets_url = "https://docs.google.com/spreadsheets/d/1fe_WjUo_8F68a0nOUZQ
 # Definir mapeamento de meses para abas
 sheet_mapping = {
     "February/2025": "Feb2025",  # Substitua pelos nomes reais das suas abas
-    "March/2025": "Mar2025"      # Substitua pelos nomes reais das suas abas
+    "March/2025": "Mar2025",     # Substitua pelos nomes reais das suas abas
+    "April/2025": "Apr2025"      # Adicionando a nova aba de Abril/2025
 }
 
 # Lista dos meses disponíveis para o seletor
@@ -77,8 +79,6 @@ selected_month = st.sidebar.selectbox(
 
 # Obter o nome da aba correspondente ao mês selecionado
 sheet_name = sheet_mapping.get(selected_month)
-
-
 
 # Carregar os dados da aba selecionada
 df = load_google_sheets(google_sheets_url, sheet_name)
