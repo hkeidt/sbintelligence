@@ -61,6 +61,7 @@ sheet_mapping = {
     "February/2025": "Feb2025",  # Substitua pelos nomes reais das suas abas
     "March/2025": "Mar2025",     # Substitua pelos nomes reais das suas abas
     "April/2025": "Apr2025"      # Adicionando a nova aba de Abril/2025
+    "May/2025": "May2025"      # Adicionando a nova aba de Abril/2025
 }
 
 # Lista dos meses disponíveis para o seletor
